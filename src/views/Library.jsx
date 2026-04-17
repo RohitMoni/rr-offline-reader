@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'preact/hooks'
 import { getAllNovels, deleteNovel } from '../services/db'
+import { subscribe } from '../services/downloadManager'
 
 export function Library({ onRead, onDownload, onResume }) {
   const [novels, setNovels] = useState([])
@@ -9,6 +10,20 @@ export function Library({ onRead, onDownload, onResume }) {
     getAllNovels().then((list) => {
       setNovels(list.reverse())
       setLoading(false)
+    })
+  }, [])
+
+  // Live-update the matching novel's progress while downloading
+  useEffect(() => {
+    return subscribe(({ current }) => {
+      setNovels((prev) =>
+        prev.map((n) => {
+          if (current?.novelId === n.novelId) {
+            return { ...n, downloadedChapters: current.done, _downloading: true }
+          }
+          return n._downloading ? { ...n, _downloading: false } : n
+        })
+      )
     })
   }, [])
 
@@ -56,7 +71,7 @@ export function Library({ onRead, onDownload, onResume }) {
                   style={`width: ${Math.round((novel.downloadedChapters / novel.totalChapters) * 100)}%`}
                 />
               </div>
-              {novel.downloadedChapters < novel.totalChapters && (
+              {novel.downloadedChapters < novel.totalChapters && !novel._downloading && (
                 <button
                   class="btn btn--ghost"
                   style="margin-top: 0.5rem; font-size: var(--font-size-xs); padding: 2px 8px; color: var(--color-accent)"
