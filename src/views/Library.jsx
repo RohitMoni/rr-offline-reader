@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks'
 import { getAllNovels, deleteNovel } from '../services/db'
 
-export function Library({ onRead, onDownload }) {
+export function Library({ onRead, onDownload, onResume }) {
   const [novels, setNovels] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -46,6 +46,9 @@ export function Library({ onRead, onDownload }) {
               <div class="text-muted">{novel.author}</div>
               <div class="text-muted" style="margin-top: 0.25rem">
                 {novel.downloadedChapters} / {novel.totalChapters} chapters
+                {novel.downloadedChapters < novel.totalChapters && novel.downloadedChapters > 0 && (
+                  <span style="color: var(--color-warning); margin-left: 0.4rem">· incomplete</span>
+                )}
               </div>
               <div class="progress-bar" style="margin-top: 0.5rem">
                 <div
@@ -53,6 +56,15 @@ export function Library({ onRead, onDownload }) {
                   style={`width: ${Math.round((novel.downloadedChapters / novel.totalChapters) * 100)}%`}
                 />
               </div>
+              {novel.downloadedChapters < novel.totalChapters && (
+                <button
+                  class="btn btn--ghost"
+                  style="margin-top: 0.5rem; font-size: var(--font-size-xs); padding: 2px 8px; color: var(--color-accent)"
+                  onClick={(e) => { e.stopPropagation(); onResume?.(novel.sourceUrl) }}
+                >
+                  ↻ Resume download
+                </button>
+              )}
             </div>
             <button
               class="btn btn--ghost library__delete"

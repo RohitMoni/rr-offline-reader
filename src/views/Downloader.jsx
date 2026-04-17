@@ -8,8 +8,8 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
-export function Downloader({ onDone }) {
-  const [url, setUrl] = useState('')
+export function Downloader({ onDone, onDownloadStart, onDownloadStop, initialUrl }) {
+  const [url, setUrl] = useState(initialUrl || '')
   const [phase, setPhase] = useState('idle') // idle | fetching-meta | downloading | done | error
   const [novel, setNovel] = useState(null)
   const [progress, setProgress] = useState({ done: 0, total: 0, current: '' })
@@ -21,6 +21,7 @@ export function Downloader({ onDone }) {
     abortRef.current = false
     setError('')
     setPhase('fetching-meta')
+    onDownloadStart?.()
 
     try {
       const meta = await fetchNovelMeta(url.trim())
@@ -59,14 +60,17 @@ export function Downloader({ onDone }) {
 
       setProgress({ done: meta.chapters.length, total: meta.chapters.length, current: '' })
       setPhase('done')
+      onDownloadStop?.()
     } catch (err) {
       setError(err.message)
       setPhase('error')
+      onDownloadStop?.()
     }
   }
 
   function handleAbort() {
     abortRef.current = true
+    onDownloadStop?.()
   }
 
   const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0

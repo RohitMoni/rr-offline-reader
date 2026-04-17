@@ -81,14 +81,28 @@ export function Reader({ novelId, onBack }) {
   }
 
   if (loading) {
-    return <div class="empty-state"><p>Loading chapters...</p></div>
+    return (
+      <div class="reader">
+        <header class="reader__header">
+          <button class="btn btn--ghost" style="padding: var(--space-1) var(--space-2)" onClick={onBack}>←</button>
+        </header>
+        <div class="empty-state"><p>Loading chapters...</p></div>
+      </div>
+    )
   }
 
   if (chapters.length === 0) {
     return (
-      <div class="empty-state">
-        <p>No chapters downloaded yet.</p>
-        <button class="btn btn--ghost" onClick={onBack}>← Back</button>
+      <div class="reader">
+        <header class="reader__header">
+          <button class="btn btn--ghost" style="padding: var(--space-1) var(--space-2)" onClick={onBack}>←</button>
+          <span class="reader__header-title">No chapters downloaded</span>
+        </header>
+        <div class="empty-state">
+          <p>No chapters downloaded yet.</p>
+          <p class="text-muted">Go back and download the novel first.</p>
+          <button class="btn btn--ghost" onClick={onBack}>← Back to Library</button>
+        </div>
       </div>
     )
   }
