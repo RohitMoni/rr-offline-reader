@@ -1,79 +1,24 @@
-import { useState, useRef } from 'preact/hooks'
-import { fetchNovelMeta, fetchChapterContent } from '../services/scraper'
-import { saveNovel, saveChapter, getNovel } from '../services/db'
+import { useState, useEffect } from 'preact/hooks'
+import { enqueue, cancelCurrent, subscribe } from '../services/downloadManager'
 
-const DELAY_MS = 600
-
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms))
-}
-
-export function Downloader({ onDone, onDownloadStart, onDownloadStop, initialUrl }) {
+export function Downloader({ initialUrl, onDone }) {
   const [url, setUrl] = useState(initialUrl || '')
-  const [phase, setPhase] = useState('idle') // idle | fetching-meta | downloading | done | error
-  const [novel, setNovel] = useState(null)
-  const [progress, setProgress] = useState({ done: 0, total: 0, current: '' })
-  const [error, setError] = useState('')
-  const abortRef = useRef(false)
+  const [dlState, setDlState] = useState({ current: null, queue: [] })
 
-  async function handleStart() {
+  useEffect(() => subscribe(setDlState), [])
+
+  function handleAdd() {
     if (!url.trim()) return
-    abortRef.current = false
-    setError('')
-    setPhase('fetching-meta')
-    onDownloadStart?.()
-
-    try {
-      const meta = await fetchNovelMeta(url.trim())
-      setNovel(meta)
-      setPhase('downloading')
-
-      const existing = await getNovel(meta.novelId)
-      const novelRecord = {
-        ...meta,
-        chapters: undefined,
-        downloadedChapters: existing?.downloadedChapters || 0,
-        lastReadChapterId: existing?.lastReadChapterId || null,
-      }
-      await saveNovel(novelRecord)
-
-      let downloaded = existing?.downloadedChapters || 0
-
-      for (let i = 0; i < meta.chapters.length; i++) {
-        if (abortRef.current) break
-        const chapterMeta = meta.chapters[i]
-        setProgress({ done: i, total: meta.chapters.length, current: chapterMeta.title })
-
-        try {
-          const chapter = await fetchChapterContent(meta.novelId, chapterMeta)
-          if (chapter) {
-            await saveChapter(chapter)
-            downloaded++
-            await saveNovel({ ...novelRecord, downloadedChapters: downloaded })
-          }
-        } catch {
-          // skip failed chapters, continue
-        }
-
-        await sleep(DELAY_MS)
-      }
-
-      setProgress({ done: meta.chapters.length, total: meta.chapters.length, current: '' })
-      setPhase('done')
-      onDownloadStop?.()
-    } catch (err) {
-      setError(err.message)
-      setPhase('error')
-      onDownloadStop?.()
-    }
+    enqueue(url.trim())
+    setUrl('')
   }
 
-  function handleAbort() {
-    abortRef.current = true
-    onDownloadStop?.()
+  function handleKeyDown(e) {
+    if (e.key === 'Enter') handleAdd()
   }
 
-  const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0
+  const { current, queue } = dlState
+  const isIdle = !current && queue.length === 0
 
   return (
     <div class="downloader">
@@ -86,50 +31,60 @@ export function Downloader({ onDone, onDownloadStart, onDownloadStop, initialUrl
             placeholder="https://www.royalroad.com/fiction/..."
             value={url}
             onInput={(e) => setUrl(e.target.value)}
-            disabled={phase !== 'idle' && phase !== 'error'}
+            onKeyDown={handleKeyDown}
           />
-          {phase === 'idle' || phase === 'error' ? (
-            <button class="btn btn--primary" onClick={handleStart} disabled={!url.trim()}>
-              Download
-            </button>
-          ) : phase === 'downloading' ? (
-            <button class="btn btn--danger" onClick={handleAbort}>Stop</button>
-          ) : null}
+          <button class="btn btn--primary" onClick={handleAdd} disabled={!url.trim()}>
+            Add to queue
+          </button>
         </div>
-
-        {error && (
-          <div class="downloader__error" style="margin-top: var(--space-4)">
-            <p style="color: #e05555; font-size: var(--font-size-sm)">{error}</p>
-          </div>
-        )}
       </div>
 
-      {phase === 'fetching-meta' && (
-        <div class="card" style="margin-top: var(--space-4); text-align: center; color: var(--color-text-muted)">
-          Fetching novel info...
+      {current && (
+        <div class="card" style="margin-top: var(--space-4)">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-2)">
+            <span style="font-weight: 600; font-size: var(--font-size-sm)">Downloading</span>
+            <button class="btn btn--ghost" style="font-size: var(--font-size-xs); color: #e05555" onClick={cancelCurrent}>
+              Stop
+            </button>
+          </div>
+          <div style="font-weight: 600; margin-bottom: var(--space-1)">{current.title}</div>
+          {current.error ? (
+            <p style="color: #e05555; font-size: var(--font-size-sm)">{current.error}</p>
+          ) : (
+            <>
+              <div class="progress-bar" style="margin-bottom: var(--space-2)">
+                <div
+                  class="progress-bar__fill"
+                  style={`width: ${current.total > 0 ? Math.round((current.done / current.total) * 100) : 0}%`}
+                />
+              </div>
+              <div style="display: flex; justify-content: space-between">
+                <span class="text-muted" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%">
+                  {current.chapterTitle}
+                </span>
+                <span class="text-muted">{current.done} / {current.total}</span>
+              </div>
+            </>
+          )}
         </div>
       )}
 
-      {(phase === 'downloading' || phase === 'done') && novel && (
+      {queue.length > 0 && (
         <div class="card" style="margin-top: var(--space-4)">
-          <div style="font-weight: 600; margin-bottom: var(--space-2)">{novel.title}</div>
-          <div class="text-muted" style="margin-bottom: var(--space-3)">{novel.author}</div>
-
-          <div class="progress-bar" style="margin-bottom: var(--space-2)">
-            <div class="progress-bar__fill" style={`width: ${pct}%`} />
+          <div style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-3)">
+            Queue ({queue.length})
           </div>
-          <div style="display: flex; justify-content: space-between">
-            <span class="text-muted">
-              {phase === 'done' ? 'Complete' : progress.current}
-            </span>
-            <span class="text-muted">{progress.done} / {progress.total}</span>
-          </div>
+          {queue.map((item, i) => (
+            <div key={i} style="font-size: var(--font-size-sm); padding: var(--space-2) 0; border-top: 1px solid var(--color-border); color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
+              {item.url}
+            </div>
+          ))}
+        </div>
+      )}
 
-          {phase === 'done' && (
-            <button class="btn btn--primary" style="width: 100%; margin-top: var(--space-4)" onClick={onDone}>
-              Go to Library
-            </button>
-          )}
+      {isIdle && (
+        <div style="margin-top: var(--space-4); text-align: center">
+          <button class="btn btn--ghost" onClick={onDone}>← Back to Library</button>
         </div>
       )}
 
