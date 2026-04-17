@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
 import { getChaptersByIndex, saveProgress, getProgress, saveNovel, getNovel } from '../services/db'
+import { subscribe } from '../services/downloadManager'
 import '../styles/reader.css'
 
 const FONT_SIZES = [14, 16, 17, 18, 20, 22, 24]
@@ -15,16 +16,20 @@ export function Reader({ novelId, onBack }) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [loading, setLoading] = useState(true)
   const [fontSize, setFontSize] = useState(getStoredFontSize)
+  const [novel, setNovel] = useState(null)
+  const [dlProgress, setDlProgress] = useState(null) // { done, total } if this novel is downloading
   const contentRef = useRef(null)
   const scrollSaveTimer = useRef(null)
 
   useEffect(() => {
     async function load() {
-      const [chapterList, progress] = await Promise.all([
+      const [chapterList, progress, novelRecord] = await Promise.all([
         getChaptersByIndex(novelId),
         getProgress(novelId),
+        getNovel(novelId),
       ])
       setChapters(chapterList)
+      setNovel(novelRecord)
 
       if (progress && chapterList.length > 0) {
         const idx = chapterList.findIndex((c) => c.chapterId === progress.chapterId)
@@ -34,6 +39,20 @@ export function Reader({ novelId, onBack }) {
       setLoading(false)
     }
     load()
+  }, [novelId])
+
+  // Append newly downloaded chapters in real time
+  useEffect(() => {
+    return subscribe(async ({ current }) => {
+      if (current?.novelId !== novelId) {
+        setDlProgress(null)
+        return
+      }
+      setDlProgress({ done: current.done, total: current.total })
+      // Reload chapter list to pick up newly saved chapters
+      const updated = await getChaptersByIndex(novelId)
+      setChapters(updated)
+    })
   }, [novelId])
 
   // Restore scroll position when chapter changes
@@ -96,11 +115,23 @@ export function Reader({ novelId, onBack }) {
       <div class="reader">
         <header class="reader__header">
           <button class="btn btn--ghost" style="padding: var(--space-1) var(--space-2)" onClick={onBack}>←</button>
-          <span class="reader__header-title">No chapters downloaded</span>
+          <span class="reader__header-title">
+            {dlProgress ? 'Downloading...' : 'No chapters downloaded'}
+          </span>
+          {dlProgress && (
+            <span class="text-muted" style="font-size: var(--font-size-xs); flex-shrink: 0">
+              {dlProgress.done}/{dlProgress.total}
+            </span>
+          )}
         </header>
         <div class="empty-state">
-          <p>No chapters downloaded yet.</p>
-          <p class="text-muted">Go back and download the novel first.</p>
+          {dlProgress
+            ? <p class="text-muted">Downloading chapters... ({dlProgress.done}/{dlProgress.total})</p>
+            : <>
+                <p>No chapters downloaded yet.</p>
+                <p class="text-muted">Go back and download the novel first.</p>
+              </>
+          }
           <button class="btn btn--ghost" onClick={onBack}>← Back to Library</button>
         </div>
       </div>
@@ -110,14 +141,16 @@ export function Reader({ novelId, onBack }) {
   const chapter = chapters[currentIndex]
   const hasPrev = currentIndex > 0
   const hasNext = currentIndex < chapters.length - 1
+  const totalChapters = novel?.totalChapters || chapters.length
 
   return (
     <div class="reader">
       <header class="reader__header">
         <button class="btn btn--ghost" style="padding: var(--space-1) var(--space-2)" onClick={onBack}>←</button>
         <span class="reader__header-title">{chapter.title}</span>
-        <span class="text-muted" style="font-size: var(--font-size-xs); flex-shrink: 0">
+        <span class="text-muted" style="font-size: var(--font-size-xs); flex-shrink: 0; display: flex; align-items: center; gap: 4px">
           {currentIndex + 1}/{chapters.length}
+          {dlProgress && <span style="color: var(--color-accent)">↓</span>}
         </span>
       </header>
 

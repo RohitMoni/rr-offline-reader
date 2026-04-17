@@ -60,7 +60,7 @@ export function App() {
         </div>
       </nav>
 
-      <main class="app-content">
+      <main class="app-content" style="display: flex; flex-direction: column">
         {view === 'library' && (
           <Library
             onRead={openReader}
@@ -77,6 +77,10 @@ export function App() {
         {view === 'settings' && (
           <Settings onBack={() => setView('library')} />
         )}
+        <div style="flex: 1" />
+        <div style="text-align: center; padding: var(--space-3) var(--space-4) calc(var(--safe-bottom) + var(--space-3)); font-size: 11px; color: var(--color-text-muted); opacity: 0.5; user-select: none">
+          v{__APP_VERSION__}
+        </div>
       </main>
     </div>
   )
