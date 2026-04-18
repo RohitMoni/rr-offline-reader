@@ -166,3 +166,130 @@ html, body {
   font-size: 3rem;
   opacity: 0.4;
 }
+
+/* Material Symbols */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+  font-size: 20px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  user-select: none;
+  vertical-align: middle;
+}
+
+/* Bottom sheet */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  animation: fadeIn 0.15s ease;
+}
+
+.sheet {
+  width: 100%;
+  max-height: 75vh;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.2s ease;
+}
+
+.sheet__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.sheet__title {
+  font-weight: 700;
+  font-size: var(--font-size-lg);
+}
+
+.sheet__body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  flex: 1;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.sheet__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.sheet__item:last-child { border-bottom: none; }
+.sheet__item:active { background: var(--color-surface-2); }
+
+.sheet__item--active {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.sheet__item-num {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  min-width: 2rem;
+  flex-shrink: 0;
+}
+
+.sheet__item-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Progress bar active animation */
+.progress-bar__fill--active {
+  background: linear-gradient(
+    90deg,
+    var(--color-accent) 0%,
+    var(--color-accent-hover) 50%,
+    var(--color-accent) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite linear;
+}
+
+/* Update available button */
+.update-btn {
+  animation: pulse-update 2s ease-in-out infinite;
+}
+
+@keyframes pulse-update {
+  0%, 100% { opacity: 1 }
+  50% { opacity: 0.5 }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0 }
+  to { opacity: 1 }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%) }
+  to { transform: translateY(0) }
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0 }
+  to { background-position: -200% 0 }
+}

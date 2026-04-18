@@ -103,7 +103,9 @@ export function Reader({ novelId, onBack }) {
     return (
       <div class="reader">
         <header class="reader__header">
-          <button class="btn btn--ghost" style="padding: var(--space-1) var(--space-2)" onClick={onBack}>←</button>
+          <button class="btn btn--ghost" style="padding: var(--space-2)" onClick={onBack}>
+            <span class="material-symbols-outlined">arrow_back</span>
+          </button>
         </header>
         <div class="empty-state"><p>Loading chapters...</p></div>
       </div>
@@ -114,7 +116,9 @@ export function Reader({ novelId, onBack }) {
     return (
       <div class="reader">
         <header class="reader__header">
-          <button class="btn btn--ghost" style="padding: var(--space-1) var(--space-2)" onClick={onBack}>←</button>
+          <button class="btn btn--ghost" style="padding: var(--space-2)" onClick={onBack}>
+            <span class="material-symbols-outlined">arrow_back</span>
+          </button>
           <span class="reader__header-title">
             {dlProgress ? 'Downloading...' : 'No chapters downloaded'}
           </span>
@@ -146,7 +150,9 @@ export function Reader({ novelId, onBack }) {
   return (
     <div class="reader">
       <header class="reader__header">
-        <button class="btn btn--ghost" style="padding: var(--space-1) var(--space-2)" onClick={onBack}>←</button>
+        <button class="btn btn--ghost" style="padding: var(--space-2)" onClick={onBack}>
+          <span class="material-symbols-outlined">arrow_back</span>
+        </button>
         <span class="reader__header-title">{chapter.title}</span>
         <span class="text-muted" style="font-size: var(--font-size-xs); flex-shrink: 0; display: flex; align-items: center; gap: 4px">
           {currentIndex + 1}/{chapters.length}
@@ -167,14 +173,20 @@ export function Reader({ novelId, onBack }) {
             dangerouslySetInnerHTML={{ __html: chapter.content }}
           />
           <div style="display: flex; justify-content: space-between; margin-top: var(--space-8); padding-bottom: var(--space-4)">
-            <button class="btn btn--ghost" onClick={() => goToChapter(currentIndex - 1)} disabled={!hasPrev}>← Prev</button>
-            <button class="btn btn--ghost" onClick={() => goToChapter(currentIndex + 1)} disabled={!hasNext}>Next →</button>
+            <button class="btn btn--ghost" style="gap: var(--space-1)" onClick={() => goToChapter(currentIndex - 1)} disabled={!hasPrev}>
+              <span class="material-symbols-outlined" style="font-size: 18px">arrow_back</span> Prev
+            </button>
+            <button class="btn btn--ghost" style="gap: var(--space-1)" onClick={() => goToChapter(currentIndex + 1)} disabled={!hasNext}>
+              Next <span class="material-symbols-outlined" style="font-size: 18px">arrow_forward</span>
+            </button>
           </div>
         </div>
       </div>
 
       <footer class="reader__toolbar">
-        <button class="btn btn--ghost" onClick={() => goToChapter(currentIndex - 1)} disabled={!hasPrev}>‹</button>
+        <button class="btn btn--ghost" style="padding: var(--space-2)" onClick={() => goToChapter(currentIndex - 1)} disabled={!hasPrev}>
+          <span class="material-symbols-outlined">chevron_left</span>
+        </button>
 
         <div class="reader__toolbar-group">
           <button class="btn btn--ghost" onClick={() => changeFontSize(-1)} disabled={FONT_SIZES.indexOf(fontSize) === 0}>A-</button>
@@ -184,7 +196,9 @@ export function Reader({ novelId, onBack }) {
 
         <ChapterPicker chapters={chapters} currentIndex={currentIndex} onSelect={goToChapter} />
 
-        <button class="btn btn--ghost" onClick={() => goToChapter(currentIndex + 1)} disabled={!hasNext}>›</button>
+        <button class="btn btn--ghost" style="padding: var(--space-2)" onClick={() => goToChapter(currentIndex + 1)} disabled={!hasNext}>
+          <span class="material-symbols-outlined">chevron_right</span>
+        </button>
       </footer>
     </div>
   )
