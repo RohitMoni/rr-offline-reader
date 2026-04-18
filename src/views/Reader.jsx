@@ -129,13 +129,17 @@ export function Reader({ novelId, onBack }) {
           )}
         </header>
         <div class="empty-state">
-          {dlProgress
-            ? <p class="text-muted">Downloading chapters... ({dlProgress.done}/{dlProgress.total})</p>
-            : <>
-                <p>No chapters downloaded yet.</p>
-                <p class="text-muted">Go back and download the novel first.</p>
-              </>
-          }
+          {dlProgress ? (
+            <>
+              <p>Downloading — first chapter coming soon.</p>
+              <p class="text-muted">{dlProgress.done} / {dlProgress.total} chapters</p>
+            </>
+          ) : (
+            <>
+              <p>No chapters downloaded yet.</p>
+              <p class="text-muted">Go back and download the novel first.</p>
+            </>
+          )}
           <button class="btn btn--ghost" onClick={onBack}>← Back to Library</button>
         </div>
       </div>

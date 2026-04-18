@@ -1,30 +1,57 @@
 import { useState, useEffect, useRef } from 'preact/hooks'
-import { getAllNovels, deleteNovel, getChaptersByIndex, saveProgress, getProgress } from '../services/db'
-import { subscribe, cancelCurrent } from '../services/downloadManager'
+import { getAllNovels, deleteNovel, getChaptersByIndex, saveProgress, getProgress, getNovel } from '../services/db'
+import { subscribe, cancelCurrent, getState } from '../services/downloadManager'
 
 export function Library({ onRead, onDownload, onResume }) {
   const [novels, setNovels] = useState([])
   const [loading, setLoading] = useState(true)
   const [chapterSheet, setChapterSheet] = useState(null) // { novelId, chapters, currentChapterId }
   const activeChapterRef = useRef(null)
+  // Mirrors the novelIds currently in state — used to detect new novels in the subscribe callback
+  const novelIdsRef = useRef(new Set())
+
+  // Keep novelIdsRef in sync with state
+  useEffect(() => {
+    novelIdsRef.current = new Set(novels.map((n) => n.novelId))
+  }, [novels])
 
   useEffect(() => {
     getAllNovels().then((list) => {
-      setNovels(list.reverse())
+      const reversed = list.reverse()
+      // Immediately apply any in-progress download state to avoid a second render flicker
+      const { current } = getState()
+      const merged = reversed.map((n) =>
+        n.novelId === current?.novelId
+          ? { ...n, downloadedChapters: current.done, _downloading: true }
+          : n
+      )
+      setNovels(merged)
       setLoading(false)
     })
   }, [])
 
   useEffect(() => {
-    return subscribe(({ current }) => {
+    return subscribe(async ({ current }) => {
+      // Update any novel already in the list
       setNovels((prev) =>
         prev.map((n) => {
-          if (current?.novelId === n.novelId) {
+          if (n.novelId === current?.novelId) {
             return { ...n, downloadedChapters: current.done, _downloading: true }
           }
           return n._downloading ? { ...n, _downloading: false } : n
         })
       )
+
+      // If the downloading novel isn't in the list yet, fetch it from DB and prepend it
+      if (current?.novelId && !novelIdsRef.current.has(current.novelId)) {
+        const novel = await getNovel(current.novelId)
+        if (novel) {
+          setNovels((prev) => {
+            if (prev.some((n) => n.novelId === novel.novelId)) return prev
+            return [{ ...novel, downloadedChapters: current.done, _downloading: true }, ...prev]
+          })
+        }
+      }
     })
   }, [])
 
