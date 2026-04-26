@@ -15,6 +15,7 @@ export function App() {
   const [addInitialUrl, setAddInitialUrl] = useState('')
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const updateSWRef = useRef(null)
+  const updateIntervalRef = useRef(null)
 
   useEffect(() => {
     requestPersistentStorage()
@@ -25,12 +26,18 @@ export function App() {
       },
       onRegistered(reg) {
         // Check for updates every 60s while the app is visible
-        setInterval(() => {
+        updateIntervalRef.current = setInterval(() => {
           if (!document.hidden) reg?.update()
         }, 60_000)
       },
     })
     updateSWRef.current = updateSW
+
+    return () => {
+      if (updateIntervalRef.current) {
+        clearInterval(updateIntervalRef.current)
+      }
+    }
   }, [])
 
   function applyUpdate() {

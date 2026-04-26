@@ -30,7 +30,7 @@ export function Settings({ onBack }) {
               onInput={(e) => setProxyUrlState(e.target.value)}
             />
             <p class="text-muted" style="margin-top: var(--space-2)">
-              Leave blank to use public proxies. For best reliability, enter your Cloudflare Worker URL.
+              Clear this field to try public proxies only. For best reliability, enter your own Cloudflare Worker URL.
             </p>
           </div>
           <button class="btn btn--primary" onClick={handleSave}>

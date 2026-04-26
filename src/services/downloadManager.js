@@ -1,5 +1,5 @@
 import { fetchNovelMeta, fetchChapterContent } from './scraper'
-import { saveNovel, saveChapter, getNovel } from './db'
+import { saveNovel, saveChapter, getNovel, getChaptersByIndex } from './db'
 
 const DELAY_MS = 600
 
@@ -10,26 +10,38 @@ function sleep(ms) {
 const state = {
   current: null,  // { novelId, title, done, total, chapterTitle }
   queue: [],      // [{ url }]
+  lastError: null,
 }
 
 const subscribers = new Set()
 
-function notify() {
-  const snapshot = {
+function getSnapshot() {
+  return {
     current: state.current ? { ...state.current } : null,
     queue: [...state.queue],
+    lastError: state.lastError ? { ...state.lastError } : null,
   }
+}
+
+function notify() {
+  const snapshot = getSnapshot()
   subscribers.forEach((fn) => fn(snapshot))
 }
 
 export function subscribe(fn) {
-  fn({ current: state.current ? { ...state.current } : null, queue: [...state.queue] })
+  fn(getSnapshot())
   subscribers.add(fn)
   return () => subscribers.delete(fn)
 }
 
 export function getState() {
-  return { current: state.current, queue: [...state.queue] }
+  return getSnapshot()
+}
+
+export function clearLastError() {
+  if (!state.lastError) return
+  state.lastError = null
+  notify()
 }
 
 export function enqueue(url) {
@@ -38,6 +50,7 @@ export function enqueue(url) {
   // prevent duplicate queuing
   if (state.queue.some((q) => q.url === trimmed)) return
   if (state.current?.sourceUrl === trimmed) return
+  state.lastError = null
   state.queue.push({ url: trimmed })
   notify()
   if (!state.current) processNext()
@@ -55,61 +68,93 @@ async function processNext() {
   }
 
   const { url } = state.queue.shift()
+  state.lastError = null
   state.current = { sourceUrl: url, novelId: null, title: 'Loading...', done: 0, total: 0, chapterTitle: '', aborted: false }
   notify()
 
   try {
     const meta = await fetchNovelMeta(url)
-    const existing = await getNovel(meta.novelId)
+    const [existing, existingChapters] = await Promise.all([
+      getNovel(meta.novelId),
+      getChaptersByIndex(meta.novelId),
+    ])
+    const downloadedChapterIds = new Set(existingChapters.map((chapter) => chapter.chapterId))
+    let downloaded = downloadedChapterIds.size
+    const metaWithoutChapters = { ...meta }
+    delete metaWithoutChapters.chapters
 
     state.current = {
       sourceUrl: url,
       novelId: meta.novelId,
       title: meta.title,
-      done: existing?.downloadedChapters || 0,
+      done: downloaded,
       total: meta.chapters.length,
       chapterTitle: '',
       aborted: false,
+      failed: 0,
     }
 
-    const novelRecord = {
-      ...meta,
-      chapters: undefined,
-      downloadedChapters: existing?.downloadedChapters || 0,
+    let novelRecord = {
+      ...metaWithoutChapters,
+      downloadedChapters: downloaded,
       lastReadChapterId: existing?.lastReadChapterId || null,
+      addedAt: existing?.addedAt || meta.addedAt,
+      updatedAt: Date.now(),
     }
     await saveNovel(novelRecord)
     notify()
 
-    let downloaded = existing?.downloadedChapters || 0
-
     for (let i = 0; i < meta.chapters.length; i++) {
       if (state.current.aborted) break
       const chapterMeta = meta.chapters[i]
-      state.current.done = i
       state.current.chapterTitle = chapterMeta.title
       notify()
+
+      if (downloadedChapterIds.has(chapterMeta.chapterId)) {
+        continue
+      }
 
       try {
         const chapter = await fetchChapterContent(meta.novelId, chapterMeta)
         if (chapter) {
           await saveChapter(chapter)
-          downloaded++
-          await saveNovel({ ...novelRecord, downloadedChapters: downloaded })
+          downloadedChapterIds.add(chapterMeta.chapterId)
+          downloaded = downloadedChapterIds.size
+          novelRecord = {
+            ...novelRecord,
+            downloadedChapters: downloaded,
+            updatedAt: Date.now(),
+          }
+          await saveNovel(novelRecord)
           state.current.done = downloaded
           notify()
         }
-      } catch {
-        // skip failed chapter
+      } catch (err) {
+        state.current.failed += 1
+        state.lastError = {
+          sourceUrl: url,
+          novelId: meta.novelId,
+          title: meta.title,
+          chapterTitle: chapterMeta.title,
+          message: err instanceof Error ? err.message : 'Unknown download error',
+        }
+        notify()
       }
 
       await sleep(DELAY_MS)
     }
   } catch (err) {
-    state.current = { ...state.current, error: err.message }
+    const message = err instanceof Error ? err.message : 'Unknown download error'
+    state.current = { ...state.current, error: message }
+    state.lastError = {
+      sourceUrl: url,
+      novelId: state.current?.novelId || null,
+      title: state.current?.title || 'Download failed',
+      message,
+    }
     notify()
     await sleep(2000)
   }
 
-  processNext()
+  return processNext()
 }

@@ -16,10 +16,21 @@ export function Reader({ novelId, onBack }) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [loading, setLoading] = useState(true)
   const [fontSize, setFontSize] = useState(getStoredFontSize)
-  const [novel, setNovel] = useState(null)
   const [dlProgress, setDlProgress] = useState(null) // { done, total } if this novel is downloading
   const contentRef = useRef(null)
   const scrollSaveTimer = useRef(null)
+  const chaptersRef = useRef([])
+  const currentIndexRef = useRef(0)
+  const novelRef = useRef(null)
+  const activeChapterId = chapters[currentIndex]?.chapterId
+
+  useEffect(() => {
+    chaptersRef.current = chapters
+  }, [chapters])
+
+  useEffect(() => {
+    currentIndexRef.current = currentIndex
+  }, [currentIndex])
 
   useEffect(() => {
     async function load() {
@@ -29,10 +40,11 @@ export function Reader({ novelId, onBack }) {
         getNovel(novelId),
       ])
       setChapters(chapterList)
-      setNovel(novelRecord)
+      novelRef.current = novelRecord
 
-      if (progress && chapterList.length > 0) {
-        const idx = chapterList.findIndex((c) => c.chapterId === progress.chapterId)
+      const preferredChapterId = progress?.chapterId || novelRecord?.lastReadChapterId
+      if (preferredChapterId && chapterList.length > 0) {
+        const idx = chapterList.findIndex((c) => c.chapterId === preferredChapterId)
         if (idx >= 0) setCurrentIndex(idx)
       }
 
@@ -57,38 +69,92 @@ export function Reader({ novelId, onBack }) {
 
   // Restore scroll position when chapter changes
   useEffect(() => {
-    if (!contentRef.current || chapters.length === 0) return
+    if (!contentRef.current || !activeChapterId) return
     contentRef.current.scrollTop = 0
+    let cancelled = false
 
     getProgress(novelId).then((progress) => {
-      if (progress?.chapterId === chapters[currentIndex]?.chapterId && progress.scrollPosition) {
+      if (cancelled) return
+      if (progress?.chapterId === activeChapterId && typeof progress.scrollPosition === 'number') {
         const el = contentRef.current
-        if (el) el.scrollTop = progress.scrollPosition * el.scrollHeight
+        if (!el) return
+        const maxScroll = Math.max(el.scrollHeight - el.clientHeight, 0)
+        el.scrollTop = progress.scrollPosition * maxScroll
       }
     })
-  }, [currentIndex, chapters.length])
+
+    return () => {
+      cancelled = true
+    }
+  }, [novelId, activeChapterId])
 
   const saveScrollProgress = useCallback(() => {
-    if (!contentRef.current || chapters.length === 0) return
+    const chapter = chaptersRef.current[currentIndexRef.current]
+    if (!chapter) return Promise.resolve()
+
     const el = contentRef.current
-    const position = el.scrollHeight > 0 ? el.scrollTop / el.scrollHeight : 0
-    const chapter = chapters[currentIndex]
-    if (chapter) saveProgress(novelId, chapter.chapterId, position)
-  }, [novelId, currentIndex, chapters])
+    const maxScroll = el ? Math.max(el.scrollHeight - el.clientHeight, 0) : 0
+    const position = el && maxScroll > 0 ? el.scrollTop / maxScroll : 0
+    return saveProgress(novelId, chapter.chapterId, position)
+  }, [novelId])
+
+  const persistLastReadChapter = useCallback(async (chapterId) => {
+    if (!chapterId) return
+
+    const baseNovel = novelRef.current || await getNovel(novelId)
+    if (!baseNovel || baseNovel.lastReadChapterId === chapterId) return
+
+    const updatedNovel = { ...baseNovel, lastReadChapterId: chapterId }
+    novelRef.current = updatedNovel
+    await saveNovel(updatedNovel)
+  }, [novelId])
+
+  const flushReadingState = useCallback(() => {
+    clearTimeout(scrollSaveTimer.current)
+    const chapter = chaptersRef.current[currentIndexRef.current]
+    if (!chapter) return
+    void saveScrollProgress()
+    void persistLastReadChapter(chapter.chapterId)
+  }, [persistLastReadChapter, saveScrollProgress])
+
+  useEffect(() => {
+    return () => {
+      flushReadingState()
+    }
+  }, [flushReadingState])
+
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.hidden) {
+        flushReadingState()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [flushReadingState])
 
   function handleScroll() {
     clearTimeout(scrollSaveTimer.current)
-    scrollSaveTimer.current = setTimeout(saveScrollProgress, 500)
+    scrollSaveTimer.current = setTimeout(() => {
+      void saveScrollProgress()
+    }, 500)
   }
 
   async function goToChapter(index) {
-    saveScrollProgress()
+    if (index < 0 || index >= chaptersRef.current.length) return
+
+    clearTimeout(scrollSaveTimer.current)
+    await saveScrollProgress()
+    await persistLastReadChapter(chaptersRef.current[index]?.chapterId)
     setCurrentIndex(index)
-    // update lastReadChapterId on the novel record
-    const novel = await getNovel(novelId)
-    if (novel) {
-      await saveNovel({ ...novel, lastReadChapterId: chapters[index]?.chapterId })
-    }
+  }
+
+  function handleBack() {
+    flushReadingState()
+    onBack()
   }
 
   function changeFontSize(delta) {
@@ -103,7 +169,7 @@ export function Reader({ novelId, onBack }) {
     return (
       <div class="reader">
         <header class="reader__header">
-          <button class="btn btn--ghost" style="padding: var(--space-2)" onClick={onBack}>
+          <button class="btn btn--ghost" style="padding: var(--space-2)" onClick={handleBack}>
             <span class="material-symbols-outlined">arrow_back</span>
           </button>
         </header>
@@ -116,7 +182,7 @@ export function Reader({ novelId, onBack }) {
     return (
       <div class="reader">
         <header class="reader__header">
-          <button class="btn btn--ghost" style="padding: var(--space-2)" onClick={onBack}>
+          <button class="btn btn--ghost" style="padding: var(--space-2)" onClick={handleBack}>
             <span class="material-symbols-outlined">arrow_back</span>
           </button>
           <span class="reader__header-title">
@@ -140,7 +206,7 @@ export function Reader({ novelId, onBack }) {
               <p class="text-muted">Go back and download the novel first.</p>
             </>
           )}
-          <button class="btn btn--ghost" onClick={onBack}>← Back to Library</button>
+          <button class="btn btn--ghost" onClick={handleBack}>← Back to Library</button>
         </div>
       </div>
     )
@@ -149,12 +215,11 @@ export function Reader({ novelId, onBack }) {
   const chapter = chapters[currentIndex]
   const hasPrev = currentIndex > 0
   const hasNext = currentIndex < chapters.length - 1
-  const totalChapters = novel?.totalChapters || chapters.length
 
   return (
     <div class="reader">
       <header class="reader__header">
-        <button class="btn btn--ghost" style="padding: var(--space-2)" onClick={onBack}>
+        <button class="btn btn--ghost" style="padding: var(--space-2)" onClick={handleBack}>
           <span class="material-symbols-outlined">arrow_back</span>
         </button>
         <span class="reader__header-title">{chapter.title}</span>

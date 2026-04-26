@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'preact/hooks'
 import { getAllNovels, deleteNovel, getChaptersByIndex, saveProgress, getProgress, getNovel } from '../services/db'
-import { subscribe, cancelCurrent, getState } from '../services/downloadManager'
+import { subscribe, cancelCurrent, clearLastError, getState } from '../services/downloadManager'
 
 export function Library({ onRead, onDownload, onResume }) {
   const [novels, setNovels] = useState([])
   const [loading, setLoading] = useState(true)
   const [chapterSheet, setChapterSheet] = useState(null) // { novelId, chapters, currentChapterId }
+  const [downloadError, setDownloadError] = useState(null)
   const activeChapterRef = useRef(null)
   // Mirrors the novelIds currently in state — used to detect new novels in the subscribe callback
   const novelIdsRef = useRef(new Set())
@@ -19,19 +20,22 @@ export function Library({ onRead, onDownload, onResume }) {
     getAllNovels().then((list) => {
       const reversed = list.reverse()
       // Immediately apply any in-progress download state to avoid a second render flicker
-      const { current } = getState()
+      const { current, lastError } = getState()
       const merged = reversed.map((n) =>
         n.novelId === current?.novelId
           ? { ...n, downloadedChapters: current.done, _downloading: true }
           : n
       )
       setNovels(merged)
+      setDownloadError(lastError)
       setLoading(false)
     })
   }, [])
 
   useEffect(() => {
-    return subscribe(async ({ current }) => {
+    return subscribe(async ({ current, lastError }) => {
+      setDownloadError(lastError)
+
       // Update any novel already in the list
       setNovels((prev) =>
         prev.map((n) => {
@@ -88,21 +92,43 @@ export function Library({ onRead, onDownload, onResume }) {
     return <div class="empty-state"><div class="empty-state__icon">📚</div><p>Loading library...</p></div>
   }
 
+  const errorBanner = downloadError && (
+    <div class="card library__alert" role="alert">
+      <div>
+        <div class="library__alert-title">Download issue</div>
+        <div class="text-muted">
+          {downloadError.title && downloadError.title !== 'Loading...' ? `${downloadError.title}: ` : ''}
+          {downloadError.chapterTitle ? `${downloadError.chapterTitle}: ` : ''}
+          {downloadError.message}
+        </div>
+      </div>
+      <button class="btn btn--ghost" style="padding: var(--space-2)" onClick={clearLastError} title="Dismiss">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+  )
+
   if (novels.length === 0) {
     return (
-      <div class="empty-state">
-        <div class="empty-state__icon">📚</div>
-        <p>Your library is empty.</p>
-        <button class="btn btn--primary" onClick={onDownload}>Add a novel</button>
+      <div class="library">
+        {errorBanner}
+        <div class="empty-state">
+          <div class="empty-state__icon">📚</div>
+          <p>Your library is empty.</p>
+          <button class="btn btn--primary" onClick={onDownload}>Add a novel</button>
+        </div>
       </div>
     )
   }
 
   return (
     <div class="library">
+      {errorBanner}
       <div class="library__grid">
         {novels.map((novel) => {
-          const pct = Math.round((novel.downloadedChapters / novel.totalChapters) * 100)
+          const pct = novel.totalChapters > 0
+            ? Math.min(100, Math.round((novel.downloadedChapters / novel.totalChapters) * 100))
+            : 0
           const isIncomplete = novel.downloadedChapters < novel.totalChapters
           return (
             <div class="library__card card" key={novel.novelId} onClick={() => onRead(novel.novelId)}>
@@ -205,6 +231,19 @@ export function Library({ onRead, onDownload, onResume }) {
       <style>{`
         .library { padding: var(--space-4); }
         .library__grid { display: flex; flex-direction: column; gap: var(--space-3); }
+        .library__alert {
+          display: flex;
+          align-items: start;
+          justify-content: space-between;
+          gap: var(--space-3);
+          margin-bottom: var(--space-4);
+          border-color: var(--color-warning);
+        }
+        .library__alert-title {
+          font-size: var(--font-size-sm);
+          font-weight: 700;
+          margin-bottom: var(--space-1);
+        }
         .library__card {
           display: grid;
           grid-template-columns: 64px 1fr auto;

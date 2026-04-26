@@ -6,21 +6,25 @@ const PUBLIC_PROXIES = [
   (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
 ]
 
+function getStoredProxyUrl() {
+  return localStorage.getItem(PROXY_KEY)
+}
+
 function getCustomProxy() {
-  const stored = localStorage.getItem(PROXY_KEY) || DEFAULT_PROXY
-  return (url) => `${stored}?url=${encodeURIComponent(url)}`
+  const stored = getStoredProxyUrl()
+  if (stored === '') return null
+
+  const proxyBase = stored || DEFAULT_PROXY
+  return (url) => `${proxyBase}?url=${encodeURIComponent(url)}`
 }
 
 export function getProxyUrl() {
-  return localStorage.getItem(PROXY_KEY) || DEFAULT_PROXY
+  return getStoredProxyUrl() ?? DEFAULT_PROXY
 }
 
 export function setProxyUrl(url) {
-  if (url) {
-    localStorage.setItem(PROXY_KEY, url.replace(/\/$/, ''))
-  } else {
-    localStorage.removeItem(PROXY_KEY)
-  }
+  const trimmed = url.trim()
+  localStorage.setItem(PROXY_KEY, trimmed ? trimmed.replace(/\/$/, '') : '')
 }
 
 export async function fetchViaProxy(targetUrl) {
