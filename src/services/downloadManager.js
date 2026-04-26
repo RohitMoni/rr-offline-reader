@@ -1,7 +1,17 @@
 import { fetchNovelMeta, fetchChapterContent } from './scraper'
-import { saveNovel, saveChapter, getNovel, getChaptersByIndex } from './db'
+import {
+  saveNovel,
+  saveChapter,
+  getNovel,
+  getChaptersByIndex,
+  saveDownloadJob,
+  getAllDownloadJobs,
+  deleteDownloadJob,
+} from './db'
 
 const DELAY_MS = 600
+const CHAPTER_ATTEMPTS = 3
+const RESUMABLE_STATUSES = new Set(['queued', 'downloading'])
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms))
@@ -11,6 +21,8 @@ const state = {
   current: null,  // { novelId, title, done, total, chapterTitle }
   queue: [],      // [{ url }]
   lastError: null,
+  initialized: false,
+  processing: false,
 }
 
 const subscribers = new Set()
@@ -44,25 +56,92 @@ export function clearLastError() {
   notify()
 }
 
-export function enqueue(url) {
+function hasPendingUrl(url) {
+  return state.queue.some((q) => q.url === url) || state.current?.sourceUrl === url
+}
+
+async function queuePersistedJob(url, status = 'queued') {
+  await saveDownloadJob({
+    sourceUrl: url,
+    status,
+    createdAt: Date.now(),
+  })
+}
+
+function startProcessing() {
+  if (!state.current && !state.processing) processNext()
+}
+
+export async function initializeDownloads() {
+  if (state.initialized) {
+    startProcessing()
+    return
+  }
+
+  state.initialized = true
+  const jobs = await getAllDownloadJobs()
+  jobs
+    .filter((job) => RESUMABLE_STATUSES.has(job.status))
+    .forEach((job) => {
+      if (!hasPendingUrl(job.sourceUrl)) {
+        state.queue.push({ url: job.sourceUrl })
+      }
+    })
+
+  notify()
+  startProcessing()
+}
+
+export async function resumeDownloads() {
+  const jobs = await getAllDownloadJobs()
+  jobs
+    .filter((job) => RESUMABLE_STATUSES.has(job.status))
+    .forEach((job) => {
+      if (!hasPendingUrl(job.sourceUrl)) {
+        state.queue.push({ url: job.sourceUrl })
+      }
+    })
+
+  notify()
+  startProcessing()
+}
+
+export async function enqueue(url) {
   const trimmed = url.trim()
   if (!trimmed) return
   // prevent duplicate queuing
-  if (state.queue.some((q) => q.url === trimmed)) return
-  if (state.current?.sourceUrl === trimmed) return
+  if (hasPendingUrl(trimmed)) return
   state.lastError = null
-  state.queue.push({ url: trimmed })
-  notify()
-  if (!state.current) processNext()
+  try {
+    await queuePersistedJob(trimmed)
+    state.queue.push({ url: trimmed })
+    notify()
+    startProcessing()
+  } catch (err) {
+    state.lastError = {
+      sourceUrl: trimmed,
+      title: 'Download failed',
+      message: err instanceof Error ? err.message : 'Could not save download job',
+    }
+    notify()
+  }
 }
 
 export function cancelCurrent() {
-  if (state.current) state.current.aborted = true
+  if (state.current) {
+    state.current.aborted = true
+    state.current.cancelled = true
+    deleteDownloadJob(state.current.sourceUrl).catch(() => {})
+  }
 }
 
 async function processNext() {
+  if (state.processing) return
+  state.processing = true
+
   if (state.queue.length === 0) {
     state.current = null
+    state.processing = false
     notify()
     return
   }
@@ -73,7 +152,24 @@ async function processNext() {
   notify()
 
   try {
+    await saveDownloadJob({
+      sourceUrl: url,
+      status: 'downloading',
+      title: 'Loading...',
+      done: 0,
+      total: 0,
+      createdAt: Date.now(),
+    })
+
     const meta = await fetchNovelMeta(url)
+    if (state.current.cancelled) {
+      await deleteDownloadJob(url)
+      state.current = null
+      state.processing = false
+      notify()
+      return processNext()
+    }
+
     const [existing, existingChapters] = await Promise.all([
       getNovel(meta.novelId),
       getChaptersByIndex(meta.novelId),
@@ -90,9 +186,19 @@ async function processNext() {
       done: downloaded,
       total: meta.chapters.length,
       chapterTitle: '',
-      aborted: false,
+      aborted: state.current.aborted,
+      cancelled: state.current.cancelled,
       failed: 0,
     }
+    await saveDownloadJob({
+      sourceUrl: url,
+      status: 'downloading',
+      novelId: meta.novelId,
+      title: meta.title,
+      done: downloaded,
+      total: meta.chapters.length,
+      createdAt: Date.now(),
+    })
 
     let novelRecord = {
       ...metaWithoutChapters,
@@ -109,13 +215,33 @@ async function processNext() {
       const chapterMeta = meta.chapters[i]
       state.current.chapterTitle = chapterMeta.title
       notify()
+      await saveDownloadJob({
+        sourceUrl: url,
+        status: 'downloading',
+        novelId: meta.novelId,
+        title: meta.title,
+        done: downloaded,
+        total: meta.chapters.length,
+        chapterTitle: chapterMeta.title,
+        createdAt: Date.now(),
+      })
 
       if (downloadedChapterIds.has(chapterMeta.chapterId)) {
         continue
       }
 
       try {
-        const chapter = await fetchChapterContent(meta.novelId, chapterMeta)
+        let chapter = null
+        for (let attempt = 1; attempt <= CHAPTER_ATTEMPTS; attempt++) {
+          try {
+            chapter = await fetchChapterContent(meta.novelId, chapterMeta)
+            break
+          } catch (err) {
+            if (attempt === CHAPTER_ATTEMPTS) throw err
+            await sleep(1200 * attempt)
+          }
+        }
+
         if (chapter) {
           await saveChapter(chapter)
           downloadedChapterIds.add(chapterMeta.chapterId)
@@ -128,6 +254,16 @@ async function processNext() {
           await saveNovel(novelRecord)
           state.current.done = downloaded
           notify()
+          await saveDownloadJob({
+            sourceUrl: url,
+            status: 'downloading',
+            novelId: meta.novelId,
+            title: meta.title,
+            done: downloaded,
+            total: meta.chapters.length,
+            chapterTitle: chapterMeta.title,
+            createdAt: Date.now(),
+          })
         }
       } catch (err) {
         state.current.failed += 1
@@ -143,6 +279,22 @@ async function processNext() {
 
       await sleep(DELAY_MS)
     }
+
+    if (state.current.cancelled) {
+      await deleteDownloadJob(url)
+    } else if (downloaded >= meta.chapters.length) {
+      await deleteDownloadJob(url)
+    } else {
+      await saveDownloadJob({
+        sourceUrl: url,
+        status: 'queued',
+        novelId: meta.novelId,
+        title: meta.title,
+        done: downloaded,
+        total: meta.chapters.length,
+        createdAt: Date.now(),
+      })
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown download error'
     state.current = { ...state.current, error: message }
@@ -152,9 +304,18 @@ async function processNext() {
       title: state.current?.title || 'Download failed',
       message,
     }
+    await saveDownloadJob({
+      sourceUrl: url,
+      status: 'queued',
+      novelId: state.current?.novelId || null,
+      title: state.current?.title || 'Download failed',
+      message,
+      createdAt: Date.now(),
+    })
     notify()
     await sleep(2000)
   }
 
+  state.processing = false
   return processNext()
 }

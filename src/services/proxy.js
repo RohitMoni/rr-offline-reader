@@ -6,6 +6,13 @@ const PUBLIC_PROXIES = [
   (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
 ]
 
+const REQUEST_TIMEOUT_MS = 30000
+const REQUEST_ATTEMPTS = 2
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 function getStoredProxyUrl() {
   return localStorage.getItem(PROXY_KEY)
 }
@@ -30,16 +37,28 @@ export function setProxyUrl(url) {
 export async function fetchViaProxy(targetUrl) {
   const custom = getCustomProxy()
   const proxies = custom ? [custom, ...PUBLIC_PROXIES] : PUBLIC_PROXIES
+  const errors = []
 
-  for (const buildUrl of proxies) {
-    try {
-      const res = await fetch(buildUrl(targetUrl), {
-        signal: AbortSignal.timeout(15000),
-      })
-      if (res.ok) return res.text()
-    } catch {
-      // try next proxy
+  for (let attempt = 1; attempt <= REQUEST_ATTEMPTS; attempt++) {
+    for (const buildUrl of proxies) {
+      try {
+        const res = await fetch(buildUrl(targetUrl), {
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        })
+        if (res.ok) return res.text()
+        errors.push(`HTTP ${res.status}`)
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : 'Network error')
+      }
+    }
+
+    if (attempt < REQUEST_ATTEMPTS) {
+      await sleep(1000 * attempt)
     }
   }
-  throw new Error('All proxies failed. Check your network or configure a custom proxy in settings.')
+
+  const latestError = errors.at(-1)
+  throw new Error(
+    `All proxies failed${latestError ? ` (${latestError})` : ''}. Keep the app open or try again on a stronger connection.`
+  )
 }

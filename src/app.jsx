@@ -5,6 +5,7 @@ import { AddNovelModal } from './views/Downloader'
 import { Reader } from './views/Reader'
 import { Settings } from './views/Settings'
 import { requestPersistentStorage } from './services/db'
+import { initializeDownloads, resumeDownloads } from './services/downloadManager'
 import './styles/tokens.css'
 import './styles/app.css'
 
@@ -19,6 +20,20 @@ export function App() {
 
   useEffect(() => {
     requestPersistentStorage()
+    initializeDownloads()
+
+    function handleVisibilityChange() {
+      if (!document.hidden && navigator.onLine) {
+        resumeDownloads()
+      }
+    }
+
+    function handleOnline() {
+      resumeDownloads()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('online', handleOnline)
 
     const updateSW = registerSW({
       onNeedRefresh() {
@@ -34,6 +49,8 @@ export function App() {
     updateSWRef.current = updateSW
 
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('online', handleOnline)
       if (updateIntervalRef.current) {
         clearInterval(updateIntervalRef.current)
       }
