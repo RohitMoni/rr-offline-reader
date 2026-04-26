@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'preact/hooks'
 import { getAllNovels, deleteNovel, getChaptersByIndex, saveProgress, getProgress, getNovel } from '../services/db'
-import { subscribe, cancelCurrent, clearLastError, getState } from '../services/downloadManager'
+import { subscribe, cancelCurrent, clearLastError, getState, enqueue, removeDownload } from '../services/downloadManager'
 
 export function Library({ onRead, onDownload, onResume }) {
   const [novels, setNovels] = useState([])
@@ -71,6 +71,27 @@ export function Library({ onRead, onDownload, onResume }) {
     if (!confirm('Delete this novel and all its chapters?')) return
     await deleteNovel(novelId)
     setNovels((prev) => prev.filter((n) => n.novelId !== novelId))
+  }
+
+  async function handleFreshRetry(novel, e) {
+    e.stopPropagation()
+    if (!novel.sourceUrl) return
+
+    const confirmed = confirm(
+      `Clear all downloaded chapters for "${novel.title}" and download it again from the start?`
+    )
+    if (!confirmed) return
+
+    await removeDownload(novel.sourceUrl)
+    await deleteNovel(novel.novelId)
+    setNovels((prev) => prev.filter((n) => n.novelId !== novel.novelId))
+    await enqueue(novel.sourceUrl)
+  }
+
+  function handleOpenSource(novel, e) {
+    e.stopPropagation()
+    if (!novel.sourceUrl) return
+    window.open(novel.sourceUrl, '_blank', 'noopener,noreferrer')
   }
 
   async function openChapterSheet(novelId, e) {
@@ -172,6 +193,26 @@ export function Library({ onRead, onDownload, onResume }) {
                 )}
               </div>
               <div class="library__actions">
+                {novel.sourceUrl && (
+                  <button
+                    class="btn btn--ghost"
+                    style="padding: var(--space-2)"
+                    onClick={(e) => handleOpenSource(novel, e)}
+                    title="Open on Royal Road"
+                  >
+                    <span class="material-symbols-outlined">open_in_new</span>
+                  </button>
+                )}
+                {novel.sourceUrl && (
+                  <button
+                    class="btn btn--ghost"
+                    style="padding: var(--space-2); color: var(--color-warning)"
+                    onClick={(e) => handleFreshRetry(novel, e)}
+                    title="Clear and retry download"
+                  >
+                    <span class="material-symbols-outlined">restart_alt</span>
+                  </button>
+                )}
                 <button
                   class="btn btn--ghost"
                   style="padding: var(--space-2)"

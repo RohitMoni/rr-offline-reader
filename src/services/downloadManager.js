@@ -60,6 +60,20 @@ function hasPendingUrl(url) {
   return state.queue.some((q) => q.url === url) || state.current?.sourceUrl === url
 }
 
+export async function removeDownload(url) {
+  const trimmed = url?.trim()
+  if (!trimmed) return
+
+  state.queue = state.queue.filter((job) => job.url !== trimmed)
+  if (state.current?.sourceUrl === trimmed) {
+    state.current.aborted = true
+    state.current.cancelled = true
+  }
+
+  await deleteDownloadJob(trimmed)
+  notify()
+}
+
 async function queuePersistedJob(url, status = 'queued') {
   await saveDownloadJob({
     sourceUrl: url,
